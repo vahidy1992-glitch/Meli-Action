@@ -364,84 +364,75 @@ jobs:
       # ──────────────────────────────────────
       # قدم ششم: ساخت/به‌روزرسانی Links.md
       # ──────────────────────────────────────
-      - name: 📝 ساخت/به‌روزرسانی Links.md
+
+      - name: 📝 ساخت/به‌روزرسانی Links.md (بر اساس فایل‌های واقعی)
         run: |
           export REPO="${{ github.repository }}"
           export BRANCH="${GITHUB_REF_NAME}"
-          JSON_FILE="downloads/.download_results.json"
-
-          if [ ! -f "$JSON_FILE" ]; then
-            echo "⚠️ فایل اطلاعاتی یافت نشد. Links.md به‌روزرسانی نمی‌شود."
-            exit 0
-          fi
+          export BASE_DIR="downloads"
 
           python3 << 'PYEOF'
-          import json, os, urllib.parse
+          import os, urllib.parse, json
+          from pathlib import Path
           from datetime import datetime, timezone, timedelta
 
           repo = os.environ["REPO"]
           branch = os.environ["BRANCH"]
-          json_path = "downloads/.download_results.json"
+          base_dir = Path(os.environ["BASE_DIR"])
 
-          with open(json_path, "r") as f:
-              files = json.load(f)
+          # جمع‌آوری تمام فایل‌های داخل downloads (بدون فایل‌های مخفی و .json)
+          all_files = []
+          for f in base_dir.rglob("*"):
+              if f.is_file() and not f.name.startswith(".") and f.suffix != ".json":
+                  all_files.append(f)
 
+          if not all_files:
+              # اگر پوشه خالی بود، Links.md را بازنویسی کن با هدر خالی
+              header = "## 🔗 Direct Download Links\n> Click on any link below to start downloading directly.<br><br/>\n\n"
+              with open("Links.md", "w") as f:
+                  f.write(header)
+              print("📂 پوشهٔ downloads خالی است. Links.md بازنویسی شد.")
+              exit(0)
+
+          # ساخت لینک‌ها
+          lines = []
           ir_tz = timezone(timedelta(hours=3, minutes=30))
           now = datetime.now(timezone.utc).astimezone(ir_tz).strftime("%Y-%m-%d %H:%M IR")
+          lines.append(f"### 📅 {now}")
 
-          header = "## 🔗 Direct Download Links\n> Click on any link below to start downloading directly.<br><br/>\n\n"
-          new_entries = [f"### 📅 {now}"]
-
-          for f in files:
-              fname = os.path.basename(f["file"])
-              sub_path = f["file"]
-              # ساخت مسیر کامل برای URL خام
-              if "/" in sub_path:
-                  parts = sub_path.split("/")
-                  encoded_path = "/".join(urllib.parse.quote(p, safe='') for p in parts)
-                  raw_url = f"https://github.com/{repo}/raw/{branch}/downloads/{encoded_path}"
-              else:
-                  encoded_fname = urllib.parse.quote(fname)
-                  raw_url = f"https://github.com/{repo}/raw/{branch}/downloads/{encoded_fname}"
-
-              size = f["size"]
+          for fpath in sorted(all_files):
+              rel_path = fpath.relative_to(base_dir)
+              # ساخت URL خام
+              encoded_path = "/".join(urllib.parse.quote(p, safe='') for p in rel_path.parts)
+              raw_url = f"https://github.com/{repo}/raw/{branch}/downloads/{encoded_path}"
+              
+              size = fpath.stat().st_size
               if size >= 1048576:
                   size_str = f"{size/1048576:.1f}MB"
               elif size >= 1024:
                   size_str = f"{size//1024}KB"
               else:
                   size_str = f"{size}B"
-
-              ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
+              
+              ext = fpath.suffix[1:] if fpath.suffix else ""
               icon = "📥"
               if ext == "apk": icon = "📱"
               elif ext in ("mp4", "mkv", "avi", "mov"): icon = "🎬"
               elif ext in ("mp3", "m4a", "flac", "ogg"): icon = "🎵"
               elif ext == "zip" or ext.startswith("z"): icon = "🗜️"
-
-              display = fname
-              new_entries.append(f"- {icon} [{display}]({raw_url}) `{size_str}`")
-
-          new_content = "\n".join(new_entries) + "\n\n---\n\n"
-
-          old_content = ""
-          if os.path.exists("Links.md"):
-              with open("Links.md", "r") as f:
-                  old = f.read()
-              lines = old.splitlines()
-              if len(lines) > 3 and lines[0].startswith("## 🔗"):
-                  old_content = "\n".join(lines[3:]) + "\n"
-              else:
-                  old_content = old
-
+              
+              lines.append(f"- {icon} [{fpath.name}]({raw_url}) `{size_str}`")
+          
+          content = "\n".join(lines) + "\n\n---\n\n"
+          header = "## 🔗 Direct Download Links\n> Click on any link below to start downloading directly.<br><br/>\n\n"
+          
           with open("Links.md", "w") as f:
               f.write(header)
-              f.write(new_content)
-              f.write(old_content)
+              f.write(content)
 
-          print("✅ Links.md با موفقیت به‌روزرسانی شد.")
+          print(f"✅ Links.md با {len(all_files)} فایل به‌روزرسانی شد.")
           PYEOF
-
+     
       # ──────────────────────────────────────
       # قدم هفتم: ارسال فایل‌ها به مخزن
       # ──────────────────────────────────────
